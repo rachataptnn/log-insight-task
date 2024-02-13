@@ -14,4 +14,4 @@ Find the most requested domains in the log file and print them, up to 5th place 
 5. Analysis by time period
 Analyze and output request frequency by time zone.
 6. (Additional items to do if you have time) Build with cli
-Branch Rule: Use the format feature/name for branch names.
+7. Branch Rule: Use the format feature/name for branch names.
