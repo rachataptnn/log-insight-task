@@ -31,34 +31,4 @@ func GetRoute(uri string) (route string, err error) {
 	return route, nil
 }
 
-// assume log file is not a perfect file
-// maybe all LogSummary is not be placed in the odd line
-
-// perfect log file pattern
-// LogSummary
-// LogDetail
-// LogSummary
-// LogDetail
-// ...
-
-// what if
-// LogSummary
-// LogDetail
-// LogSummary
-// LogSummary
-
-// this func only use for check the soure file
-// func is rawLogPerfect() bool {
-// the first idea, LogSummary doesnt have many fields..
-// i choose 'status' for validation if log detail is placed in the odd line
-//     for {
-//        	isOddLine {
-//				logDetail,err := parseLogDetail(line)
-//				if logDetail.Status != 0 {
-//					fmt.Printf("\n<%+v>\n", logDetail)
-// 				}
-// 			}
-//     }
-// }
-
-// TODO: maybe i should check if found logSummary, LogDetail 2 or 3 times in a row
+// i would like to think the log in the test is perfect pattern. no need for validation

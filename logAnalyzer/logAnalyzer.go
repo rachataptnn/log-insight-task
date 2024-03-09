@@ -3,59 +3,72 @@ package logAnalyzer
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"log-analyzer/config"
 	"log-analyzer/model"
 	"log-analyzer/validation"
 	"os"
+	"sort"
 )
 
 // struct resultStats
 type ResultStats struct {
-	LogLevelCount       map[string]int
-	HTTPStatusCodeCount map[int]int
-	RespTime            RespTimeStat
-	CalledHostCount     map[string]int
-	// TimeZoneCount       map[string]int, for now have no idea how can i know the zones
+	LogLevelCnt   map[string]int
+	CodeCnt       map[int]int
+	RespTime      RespTimeStat
+	TimeZoneCnt   map[string]int
+	HostCnt       map[string]int
+	SortedHostCnt []Host
+}
+
+type Host struct {
+	Host  string
+	Count int
 }
 
 type RespTimeStat struct {
-	Summary      AllRoutesRespTime
-	EachRoute    EachRouteRespTime
-	SlowReqRatio string
+	AllRoutes AllRoutesRespTime
+	EachRoute EachRouteRespTime
 }
 
 // calc in the end
 type AllRoutesRespTime struct {
-	Max float32
-	Min float32
-	Avg float32
+	Max      int
+	Min      int
+	Avg      float32
+	SlowRate float32
 }
 
 type EachRouteRespTime struct {
-	EachRouteRespTimeSummary     map[string]EachRouteRespTimeSummary
-	EachRouteRespTimeCalculating map[string]EachRouteRespTimeCalculating
+	EachRouteRespTimeSummary map[string]EachRouteRespTimeSummary
+	EachRouteRespTimeForCalc map[string]EachRouteRespTimeForCalcAvg
 }
 
 // calc in the end
 type EachRouteRespTimeSummary struct {
-	Max int
-	Min int
-	Avg float32
+	Max      int
+	Min      int
+	Avg      float32
+	SlowRate float32
 }
 
 // calc every line processing
-type EachRouteRespTimeCalculating struct {
+type EachRouteRespTimeForCalcAvg struct {
 	TotalLatency int
-	CalledCount  int
+	TotalReqCnt  int
+	SlowReqCnt   int
 }
 
 func (r *ResultStats) Initialize() {
-	r.LogLevelCount = make(map[string]int)
-	r.HTTPStatusCodeCount = make(map[int]int)
-	r.CalledHostCount = make(map[string]int)
+	r.LogLevelCnt = make(map[string]int)
+	r.CodeCnt = make(map[int]int)
+	r.HostCnt = make(map[string]int)
+	r.SortedHostCnt = make([]Host, 0)
+	r.TimeZoneCnt = make(map[string]int)
 	r.RespTime.EachRoute.EachRouteRespTimeSummary = make(map[string]EachRouteRespTimeSummary)
-	r.RespTime.EachRoute.EachRouteRespTimeCalculating = make(map[string]EachRouteRespTimeCalculating)
+	r.RespTime.EachRoute.EachRouteRespTimeForCalc = make(map[string]EachRouteRespTimeForCalcAvg)
 }
 
 func (r *ResultStats) AnalyzeLog(cfg *config.Config) (*ResultStats, error) {
@@ -97,8 +110,8 @@ func (r *ResultStats) AnalyzeLog(cfg *config.Config) (*ResultStats, error) {
 }
 
 func (r *ResultStats) CalcEachLieStat(logDetail model.LogDetail) error {
-	r.LogLevelCount[logDetail.Level] += 1
-	r.HTTPStatusCodeCount[logDetail.Status] += 1
+	r.LogLevelCnt[logDetail.Level] += 1
+	r.CodeCnt[logDetail.Status] += 1
 
 	latency, err := validation.GetLatencyInMs(logDetail.Latency)
 	if err != nil {
@@ -111,14 +124,16 @@ func (r *ResultStats) CalcEachLieStat(logDetail model.LogDetail) error {
 	}
 
 	// Retrieve the element from the map
-	calc := r.RespTime.EachRoute.EachRouteRespTimeCalculating[route]
-
+	calc := r.RespTime.EachRoute.EachRouteRespTimeForCalc[route]
 	// Update its fields
-	calc.CalledCount++
+	calc.TotalReqCnt++
 	calc.TotalLatency += latency
+	if latency > 500 {
+		calc.SlowReqCnt++
+	}
 
 	// Assign it back to the map
-	r.RespTime.EachRoute.EachRouteRespTimeCalculating[route] = calc
+	r.RespTime.EachRoute.EachRouteRespTimeForCalc[route] = calc
 
 	// Update summary
 	summary := r.RespTime.EachRoute.EachRouteRespTimeSummary[route]
@@ -130,10 +145,13 @@ func (r *ResultStats) CalcEachLieStat(logDetail model.LogDetail) error {
 	}
 	r.RespTime.EachRoute.EachRouteRespTimeSummary[route] = summary
 
-	hostMap := r.CalledHostCount[logDetail.Host]
-	hostMap += 1
+	r.HostCnt[logDetail.Host] += 1
 
-	// TODO: calc TimeZoneCount
+	timeZone, err := getTimezoneKey(logDetail.Timestamp)
+	if err != nil {
+		return err
+	}
+	r.TimeZoneCnt[timeZone] += 1
 
 	return nil
 }
@@ -141,5 +159,93 @@ func (r *ResultStats) CalcEachLieStat(logDetail model.LogDetail) error {
 func (r *ResultStats) CalcSummaryStat() error {
 	log.Println("break for see what struct look like")
 
+	r.calcAvgRespTime()
+
+	// time out rate response time,
+	// all routes
+	// each route
+
+	// sort top URI call
+	r.sortTopURICall()
+
 	return nil
+}
+
+// for collecting data that telling timezone, i would like to assume that 'another timezone' that not present in the log file would look like this:
+// Timestamp                               Key
+// "ts": "2024-01-22T21:07:55.905-08:00",  "-08:00"     represent Pacific Standard Time (PST)
+// "ts": "2024-01-23T00:07:55.905-05:00"   "-05:00"     represent Eastern Standard Time (EST)
+// "ts": "2024-01-23T05:07:55.905Z",       "Z"          represent Greenwich Mean Time (GMT)
+// "ts": "2024-01-23T12:07:55.905+07:00"   "+07:00"     represent Indochina Time (ICT)
+// some more...
+func getTimezoneKey(timestamp string) (string, error) {
+	if len(timestamp) < 24 {
+		return "", errors.New("timestamp is too short")
+	}
+
+	key := timestamp[23:]
+	return key, nil
+}
+
+func (r *ResultStats) sortTopURICall() {
+	var hostSlice []Host
+	for host, count := range r.HostCnt {
+		hostSlice = append(hostSlice, Host{
+			Host:  host,
+			Count: count,
+		})
+	}
+
+	sort.Slice(hostSlice, func(i, j int) bool {
+		return hostSlice[i].Count > hostSlice[j].Count
+	})
+
+	if len(hostSlice) > 5 {
+		r.SortedHostCnt = hostSlice[:5]
+	} else {
+		r.SortedHostCnt = hostSlice
+	}
+}
+
+func (r *ResultStats) calcAvgRespTime() {
+	// var allRoutes
+	var allRoutesStackAvg float32
+	var routeCnt int
+	var AllRoutesMax int
+	var AllRoutesMin int
+
+	var allRoutesTotalReqCnt int
+	var allRoutesSlowReqCnt int
+
+	eachRouteMap := r.RespTime.EachRoute.EachRouteRespTimeForCalc
+	for routeName, routeStat := range eachRouteMap {
+		avgRespTime := float32(routeStat.TotalLatency) / float32(routeStat.TotalReqCnt)
+		fmt.Printf("\nroute name: %v\navg resp time: %v ms\n", routeName, avgRespTime)
+
+		eachRouteSummary := r.RespTime.EachRoute.EachRouteRespTimeSummary[routeName]
+		avg := float32(routeStat.TotalLatency) / float32(routeStat.TotalReqCnt)
+		slowRate := float32(routeStat.SlowReqCnt) / float32(routeStat.TotalReqCnt) * 100
+		eachRouteSummary.SlowRate = slowRate
+		eachRouteSummary.Avg = avg
+		r.RespTime.EachRoute.EachRouteRespTimeSummary[routeName] = eachRouteSummary
+
+		allRoutesStackAvg += avg
+		routeCnt++
+		allRoutesTotalReqCnt += routeStat.TotalReqCnt
+		allRoutesSlowReqCnt += routeStat.SlowReqCnt
+	}
+	r.RespTime.AllRoutes.Avg = allRoutesStackAvg / float32(routeCnt)
+
+	for _, v := range r.RespTime.EachRoute.EachRouteRespTimeSummary {
+		if v.Max > AllRoutesMax {
+			AllRoutesMax = v.Max
+		}
+		if v.Min < AllRoutesMin || AllRoutesMin == 0 {
+			AllRoutesMin = v.Min
+		}
+	}
+	r.RespTime.AllRoutes.Max = AllRoutesMax
+	r.RespTime.AllRoutes.Min = AllRoutesMin
+
+	r.RespTime.AllRoutes.SlowRate = float32(allRoutesSlowReqCnt) / float32(allRoutesTotalReqCnt) * 100
 }
