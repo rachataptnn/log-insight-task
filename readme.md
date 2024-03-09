@@ -5,10 +5,11 @@
 2. Execute the command `go run .` to run the program.
 
 ## Example File Issue
-- Regarding the provided file (`logfile.txt`), I didn't find records for other timezones or hosts. Thus, I added some based on my understanding and created a new file called `logfileAdded.txt`.
+- Regarding the provided file ([logfile.txt](https://github.com/rachataptnn/log-insight-task/blob/feature/log-analyzer/logfile.txt)), I didn't find records for other timezones or hosts. Thus, I added some based on my understanding and created a new file called  [logfileAdded.txt](https://github.com/rachataptnn/log-insight-task/blob/feature/log-analyzer/logfileAdded.txt).
+
 
 ## Result File Location
-- The result file is expected to be located in the folder `/result-reports`.
+- The result file is expected to be located in the folder `/result-reports`. The name is changed based on the date and time. Additionally, I have already generated the [example file](https://github.com/rachataptnn/log-insight-task/blob/feature/log-analyzer/result-reports/log-report24-03-10T02-08.md)
 <br><br><br><br>
 
 # Origin Message
