@@ -1,11 +1,26 @@
 package main
 
-// var configs
+import (
+	"log"
+
+	"log-analyzer/config"
+	"log-analyzer/logAnalyzer"
+	"log-analyzer/report"
+)
 
 func main() {
-	// configs, err := readConfig()
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		panic(err)
+	}
+	log.Println("Load config done")
 
-	// stats, err := analyzeLog(configs)
+	var r logAnalyzer.ResultStats
+	stats, err := r.AnalyzeLog(cfg)
+	if err != nil {
+		panic(err)
+	}
+	log.Printf("Calc stats done <%+v>", stats)
 
-	// createReport(stats)
+	report.CreateReport(*stats)
 }
