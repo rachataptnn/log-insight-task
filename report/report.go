@@ -4,40 +4,53 @@ import (
 	"fmt"
 	"log-analyzer/logAnalyzer"
 	"os"
+	"time"
 )
 
 var (
-	LogReportTemplateFinal = `## Log Report
+	LogReportTemplateFinal = `# Log Report
+**Created at** *%s*
 
 %s
 
+<br>
+
 %s
+
+<br>
 
 %s
 	
 	%s
 
+<br>
+
 %s
+
+<br>
 
 %s`
 
-	ErrorLogNumber = `#### 1. Error log number and ratio analysis
-    Total: %s
-    Error: %s
-    Error Ratio: %s
-    
-    Overall:
-%s
+	ErrorLogNumber = `### 1. Error log number and ratio analysis
+	Total: %s 
+	Error: %s
 	
+	Error Ratio: %s%%
+
+| Level | Amount |
+|-----------|-------|
+%s
+---
 `
 
-	LogAnalysisByStatusCode = `#### 2. Log analysis by HTTP status code
-	HTTP STATUS CODES:
+	LogAnalysisByStatusCode = `### 2. Log analysis by HTTP status code
+| Code | Amount |
+|-----------|-------|
 %s
-	
+---
 `
 
-	ResponseTimeAnalysis = `#### 3. Response time analysis
+	ResponseTimeAnalysis = `### 3. Response time analysis
 	All Routes:
 		Min: %s ms
 		Avg: %s ms
@@ -49,20 +62,34 @@ var (
 
 	ResponseTimeAnalysisEachRoute = `Each Routes
 %s
-	
+
 `
 
-	ParseTheReqURI = `#### 4. Parse the request URI
+	ParseTheReqURI = `### 4. Parse the request URI
+| Host | Amount |
+|-----------|-------|
 %s
+---
 `
 
-	AnalysisByTimePeriod = `#### 5. Analysis by time period 
+	AnalysisByTimePeriod = `### 5. Analysis by time period 
+| Timezone | Amount |
+|-----------|-------|
 %s
-
+---
 `
 )
 
 func CreateReport(stat logAnalyzer.ResultStats) error {
+	currentTime := time.Now()
+	timeStamp := fmt.Sprintf("%02d-%02d-%02dT%02d-%02d",
+		currentTime.Year()%100,
+		int(currentTime.Month()),
+		currentTime.Day(),
+		currentTime.Hour(),
+		currentTime.Minute(),
+	)
+
 	textErrorLogNumber := putStatToErrorLogNumber(stat)
 	textLogAnalysisByStatusCode := putStatToLogAnalysisByStatusCode(stat)
 	textResponseTimeAnalysis := putStatToResponseTimeAnalysis(stat)
@@ -71,6 +98,7 @@ func CreateReport(stat logAnalyzer.ResultStats) error {
 	textAnalysisByTimePeriod := putStatToAnalysisByTimePeriod(stat)
 
 	finalText := fmt.Sprintf(LogReportTemplateFinal,
+		timeStamp,
 		textErrorLogNumber,
 		textLogAnalysisByStatusCode,
 		textResponseTimeAnalysis,
@@ -79,7 +107,9 @@ func CreateReport(stat logAnalyzer.ResultStats) error {
 		textAnalysisByTimePeriod,
 	)
 
-	err := os.WriteFile("log-report.md", []byte(finalText), 0644)
+	filename := fmt.Sprintf("./result-reports/log-report" + timeStamp + ".md")
+
+	err := os.WriteFile(filename, []byte(finalText), 0644)
 	if err != nil {
 		return err
 	}
@@ -88,7 +118,7 @@ func CreateReport(stat logAnalyzer.ResultStats) error {
 }
 
 func putStatToErrorLogNumber(stat logAnalyzer.ResultStats) string {
-	totalCnt := stat.RespTime.AllRoutes.TotalReqCnt
+	totalCnt := stat.TotalLog
 	errorCnt := 0
 	var errorRatio float32
 
@@ -100,22 +130,25 @@ func putStatToErrorLogNumber(stat logAnalyzer.ResultStats) string {
 
 	overAll := ""
 	for key, val := range stat.LogLevelCnt {
-		overAll += fmt.Sprintf("        %v: %v\n", key, val)
+		overAll += fmt.Sprintf("| %v | %v |\n", key, val)
 	}
 
 	totalCntStr := fmt.Sprintf("%v", totalCnt)
 	errorCntStr := fmt.Sprintf("%v", errorCnt)
-	errorRatioStr := fmt.Sprintf("%.2f percent", errorRatio)
+	errorRatioStr := fmt.Sprintf("%.2f", errorRatio)
 
 	return fmt.Sprintf(ErrorLogNumber, totalCntStr, errorCntStr, errorRatioStr, overAll)
 }
 
 func putStatToLogAnalysisByStatusCode(stat logAnalyzer.ResultStats) string {
 	overAll := ""
-	for key, val := range stat.CodeCnt {
-		keyStr := fmt.Sprintf("%v", key)
+	for httpStatusCode, val := range stat.CodeCnt {
+		codeStr := fmt.Sprintf("%v", httpStatusCode)
+		if codeStr == "0" {
+			codeStr = "log doesn't have status code"
+		}
 		valStr := fmt.Sprintf("%v", val)
-		overAll += fmt.Sprintf("        %v: %v\n", keyStr, valStr)
+		overAll += fmt.Sprintf("| %v | %v |\n", codeStr, valStr)
 	}
 
 	return fmt.Sprintf(LogAnalysisByStatusCode, overAll)
@@ -123,12 +156,12 @@ func putStatToLogAnalysisByStatusCode(stat logAnalyzer.ResultStats) string {
 
 func putStatToResponseTimeAnalysis(stat logAnalyzer.ResultStats) string {
 	min := fmt.Sprintf("%v", stat.RespTime.AllRoutes.Min)
-	avg := fmt.Sprintf("%.2f ms", stat.RespTime.AllRoutes.Avg)
+	avg := fmt.Sprintf("%.2f", stat.RespTime.AllRoutes.Avg)
 	max := fmt.Sprintf("%v", stat.RespTime.AllRoutes.Max)
 
 	totalReqCnt := fmt.Sprintf("%v", stat.RespTime.AllRoutes.TotalReqCnt)
 	slowReqCnt := fmt.Sprintf("%v", stat.RespTime.AllRoutes.SlowReqCnt)
-	slowRate := fmt.Sprintf("%.2f percent", stat.RespTime.AllRoutes.SlowRate)
+	slowRate := fmt.Sprintf("%.2f", stat.RespTime.AllRoutes.SlowRate)
 
 	return fmt.Sprintf(ResponseTimeAnalysis,
 		min,
@@ -149,14 +182,14 @@ func putStatToResponseTimeAnalysisEachRoute(stat logAnalyzer.ResultStats) string
 
 				Total Req: %s req 
 				Slow Req:  %s req
-				SlowRate:  %s percent
+				SlowRate:  %s%%
 `
 	for route, val := range stat.RespTime.EachRoute {
 		totalReqCnt := fmt.Sprintf("%v", val.TotalReqCnt)
 		slowReqCnt := fmt.Sprintf("%v", val.SlowReqCnt)
-		slowRate := fmt.Sprintf("%v", val.SlowRate)
+		slowRate := fmt.Sprintf("%.2f", val.SlowRate)
 		minStr := fmt.Sprintf("%v", val.Min)
-		avgStr := fmt.Sprintf("%v", val.Avg)
+		avgStr := fmt.Sprintf("%.2f", val.Avg)
 		maxStr := fmt.Sprintf("%v", val.Max)
 
 		eachRouteFilled := fmt.Sprintf(eachRoute,
@@ -179,7 +212,7 @@ func putStatToParseTheReqURI(stat logAnalyzer.ResultStats) string {
 	overAll := ""
 	for _, val := range stat.SortedHostCnt {
 		cntStr := fmt.Sprintf("%v", val.Count)
-		overAll += fmt.Sprintf("        %v: %v\n", val.Host, cntStr)
+		overAll += fmt.Sprintf("| %v | %v |\n", val.Host, cntStr)
 	}
 
 	return fmt.Sprintf(ParseTheReqURI, overAll)
@@ -189,7 +222,7 @@ func putStatToAnalysisByTimePeriod(stat logAnalyzer.ResultStats) string {
 	overAll := ""
 	for key, val := range stat.TimeZoneCnt {
 		cntStr := fmt.Sprintf("%v", val)
-		overAll += fmt.Sprintf("        %v: %v\n", key, cntStr)
+		overAll += fmt.Sprintf("| %v | %v |\n", key, cntStr)
 	}
 
 	return fmt.Sprintf(AnalysisByTimePeriod, overAll)

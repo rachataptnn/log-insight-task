@@ -4,17 +4,17 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"log-analyzer/config"
+	"log-analyzer/dataParser"
 	"log-analyzer/model"
-	"log-analyzer/validation"
 	"os"
 	"sort"
 )
 
 // ResultStats represents the statistics collected from log analysis.
 type ResultStats struct {
+	TotalLog      int
 	LogLevelCnt   map[string]int
 	CodeCnt       map[int]int
 	RespTime      RespTimeStat
@@ -84,7 +84,9 @@ func (r *ResultStats) AnalyzeLog(cfg *config.Config) error {
 			log.Println("Error parsing line as LogDetail:", err)
 			continue
 		}
+
 		r.CalculateLineStat(logDetail)
+		r.TotalLog++
 	}
 	if err := scanner.Err(); err != nil {
 		return err
@@ -101,23 +103,23 @@ func (r *ResultStats) CalculateLineStat(logDetail model.LogDetail) error {
 	r.LogLevelCnt[logDetail.Level]++
 	r.CodeCnt[logDetail.Status]++
 
-	latency, err := validation.GetLatencyInMs(logDetail.Latency)
+	latency, err := dataParser.GetLatencyInMs(logDetail.Latency)
 	if err != nil {
 		return err
 	}
 
-	route, err := validation.GetRoute(logDetail.URI)
+	route, err := dataParser.GetRoute(logDetail.URI)
 	if err != nil {
 		return err
 	}
 
-	calc := r.RespTime.EachRoute[route]
-	calc.TotalReqCnt++
-	calc.TotalLatency += latency
+	eachRoute := r.RespTime.EachRoute[route]
+	eachRoute.TotalReqCnt++
+	eachRoute.TotalLatency += latency
 	if latency > 500 {
-		calc.SlowReqCnt++
+		eachRoute.SlowReqCnt++
 	}
-	r.RespTime.EachRoute[route] = calc
+	r.RespTime.EachRoute[route] = eachRoute
 
 	summary := r.RespTime.EachRoute[route]
 	if latency < summary.Min || summary.Min == 0 {
@@ -139,7 +141,6 @@ func (r *ResultStats) CalculateLineStat(logDetail model.LogDetail) error {
 	return nil
 }
 
-// getTimezoneKey extracts the timezone from the timestamp.
 func getTimezoneKey(timestamp string) (string, error) {
 	if len(timestamp) < 24 {
 		return "", errors.New("timestamp is too short")
@@ -148,7 +149,6 @@ func getTimezoneKey(timestamp string) (string, error) {
 	return key, nil
 }
 
-// SortTopURICall sorts the top URI calls.
 func (r *ResultStats) SortTopURICall() {
 	var hostSlice []Host
 	for host, count := range r.HostCnt {
@@ -167,7 +167,6 @@ func (r *ResultStats) SortTopURICall() {
 	}
 }
 
-// CalculateAvgRespTimeAndSlowRate calculates average response time.
 func (r *ResultStats) CalculateAvgRespTimeAndSlowRate() {
 	var allRoutesStackAvg float32
 	var routeCnt int
@@ -178,9 +177,6 @@ func (r *ResultStats) CalculateAvgRespTimeAndSlowRate() {
 
 	eachRouteMap := r.RespTime.EachRoute
 	for routeName, routeStat := range eachRouteMap {
-		avgRespTime := float32(routeStat.TotalLatency) / float32(routeStat.TotalReqCnt)
-		fmt.Printf("\nroute name: %v\navg resp time: %v ms\n", routeName, avgRespTime)
-
 		eachRouteSummary := r.RespTime.EachRoute[routeName]
 		avg := float32(routeStat.TotalLatency) / float32(routeStat.TotalReqCnt)
 		slowRate := float32(routeStat.SlowReqCnt) / float32(routeStat.TotalReqCnt) * 100

@@ -5,7 +5,7 @@ import (
 )
 
 type Config struct {
-	LogFilePath string `mapstructure:"logFilePath"`
+	LogFilePath string
 }
 
 func LoadConfig() (*Config, error) {

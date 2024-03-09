@@ -1,4 +1,4 @@
-package validation
+package dataParser
 
 import (
 	"errors"
@@ -6,7 +6,6 @@ import (
 	"strings"
 )
 
-// i think latency should be 'number+ms' every time but i need to check
 func GetLatencyInMs(latencyStr string) (int, error) {
 	split := strings.Split(latencyStr, "ms")
 	if len(split) != 2 {
@@ -20,7 +19,6 @@ func GetLatencyInMs(latencyStr string) (int, error) {
 	return latency, nil
 }
 
-// wanna put this func in package logAnalyzer, anyway i nid to validate if URI is valid
 func GetRoute(uri string) (route string, err error) {
 	split := strings.Split(uri, "/")
 	if len(split) < 4 {
@@ -30,5 +28,3 @@ func GetRoute(uri string) (route string, err error) {
 
 	return route, nil
 }
-
-// i would like to think the log in the test is perfect pattern. no need for validation
