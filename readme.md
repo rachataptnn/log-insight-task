@@ -1,3 +1,17 @@
+# Message From Candidate
+
+## Testing
+1. Update the log file name in `config.yaml`.
+2. Execute the command `go run .` to run the program.
+
+## Example File Issue
+- Regarding the provided file (`logfile.txt`), I didn't find records for other timezones or hosts. Thus, I added some based on my understanding and created a new file called `logfileAdded.txt`.
+
+## Result File Location
+- The result file is expected to be located in the folder `/result-reports`.
+<br><br><br><br>
+
+# Origin Message
 * Build a system that can efficiently analyze and process large amounts of log data
 * Process each line in the log file simultaneously to perform log analysis (e.g. error log count, log detection of specific pattern, etc.).
 * Analysis results must be output to the console or saved as a new file.
