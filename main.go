@@ -22,5 +22,5 @@ func main() {
 	}
 	log.Printf("Calc stats done <%+v>", stats)
 
-	report.CreateReport(*stats)
+	report.CreateReport(stats)
 }

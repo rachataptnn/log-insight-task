@@ -13,7 +13,7 @@ import (
 	"sort"
 )
 
-// struct resultStats
+// ResultStats represents the statistics collected from log analysis.
 type ResultStats struct {
 	LogLevelCnt   map[string]int
 	CodeCnt       map[int]int
@@ -33,7 +33,6 @@ type RespTimeStat struct {
 	EachRoute EachRouteRespTime
 }
 
-// calc in the end
 type AllRoutesRespTime struct {
 	Max      int
 	Min      int
@@ -46,7 +45,6 @@ type EachRouteRespTime struct {
 	EachRouteRespTimeForCalc map[string]EachRouteRespTimeForCalcAvg
 }
 
-// calc in the end
 type EachRouteRespTimeSummary struct {
 	Max      int
 	Min      int
@@ -54,64 +52,57 @@ type EachRouteRespTimeSummary struct {
 	SlowRate float32
 }
 
-// calc every line processing
 type EachRouteRespTimeForCalcAvg struct {
 	TotalLatency int
 	TotalReqCnt  int
 	SlowReqCnt   int
 }
 
-func (r *ResultStats) Initialize() {
+// InitMaps for avoid nil pointer errors.
+func (r *ResultStats) InitMaps() {
 	r.LogLevelCnt = make(map[string]int)
 	r.CodeCnt = make(map[int]int)
 	r.HostCnt = make(map[string]int)
-	r.SortedHostCnt = make([]Host, 0)
 	r.TimeZoneCnt = make(map[string]int)
 	r.RespTime.EachRoute.EachRouteRespTimeSummary = make(map[string]EachRouteRespTimeSummary)
 	r.RespTime.EachRoute.EachRouteRespTimeForCalc = make(map[string]EachRouteRespTimeForCalcAvg)
 }
 
-func (r *ResultStats) AnalyzeLog(cfg *config.Config) (*ResultStats, error) {
-	r.Initialize()
+// Core function for log analysis.
+func (r *ResultStats) AnalyzeLog(cfg *config.Config) (ResultStats, error) {
+	r.InitMaps()
 
-	// Open the file
 	file, err := os.Open(cfg.LogFilePath)
 	if err != nil {
-		return &ResultStats{}, err
+		return ResultStats{}, err
 	}
 	defer file.Close()
 
-	// Create a scanner to read the file line by line
 	scanner := bufio.NewScanner(file)
-
-	// Loop through each line in the file
 	for scanner.Scan() {
 		line := scanner.Text()
-
 		var logDetail model.LogDetail
 		err := json.Unmarshal([]byte(line), &logDetail)
 		if err != nil {
 			log.Println("Error parsing line as LogDetail:", err)
 			continue
 		}
-
-		r.CalcEachLieStat(logDetail)
-
+		r.CalculateLineStat(logDetail)
 	}
-
-	// Check for any scanning errors
 	if err := scanner.Err(); err != nil {
-		return &ResultStats{}, err
+		return ResultStats{}, err
 	}
 
-	r.CalcSummaryStat()
+	r.CalculateAvgRespTimeAndSlowRate()
+	r.SortTopURICall()
 
-	return r, nil
+	return *r, nil
 }
 
-func (r *ResultStats) CalcEachLieStat(logDetail model.LogDetail) error {
-	r.LogLevelCnt[logDetail.Level] += 1
-	r.CodeCnt[logDetail.Status] += 1
+// Calculates statistics for each log line.
+func (r *ResultStats) CalculateLineStat(logDetail model.LogDetail) error {
+	r.LogLevelCnt[logDetail.Level]++
+	r.CodeCnt[logDetail.Status]++
 
 	latency, err := validation.GetLatencyInMs(logDetail.Latency)
 	if err != nil {
@@ -123,19 +114,14 @@ func (r *ResultStats) CalcEachLieStat(logDetail model.LogDetail) error {
 		return err
 	}
 
-	// Retrieve the element from the map
 	calc := r.RespTime.EachRoute.EachRouteRespTimeForCalc[route]
-	// Update its fields
 	calc.TotalReqCnt++
 	calc.TotalLatency += latency
 	if latency > 500 {
 		calc.SlowReqCnt++
 	}
-
-	// Assign it back to the map
 	r.RespTime.EachRoute.EachRouteRespTimeForCalc[route] = calc
 
-	// Update summary
 	summary := r.RespTime.EachRoute.EachRouteRespTimeSummary[route]
 	if latency < summary.Min || summary.Min == 0 {
 		summary.Min = latency
@@ -145,49 +131,28 @@ func (r *ResultStats) CalcEachLieStat(logDetail model.LogDetail) error {
 	}
 	r.RespTime.EachRoute.EachRouteRespTimeSummary[route] = summary
 
-	r.HostCnt[logDetail.Host] += 1
+	r.HostCnt[logDetail.Host]++
 
 	timeZone, err := getTimezoneKey(logDetail.Timestamp)
 	if err != nil {
 		return err
 	}
-	r.TimeZoneCnt[timeZone] += 1
+	r.TimeZoneCnt[timeZone]++
 
 	return nil
 }
 
-func (r *ResultStats) CalcSummaryStat() error {
-	log.Println("break for see what struct look like")
-
-	r.calcAvgRespTime()
-
-	// time out rate response time,
-	// all routes
-	// each route
-
-	// sort top URI call
-	r.sortTopURICall()
-
-	return nil
-}
-
-// for collecting data that telling timezone, i would like to assume that 'another timezone' that not present in the log file would look like this:
-// Timestamp                               Key
-// "ts": "2024-01-22T21:07:55.905-08:00",  "-08:00"     represent Pacific Standard Time (PST)
-// "ts": "2024-01-23T00:07:55.905-05:00"   "-05:00"     represent Eastern Standard Time (EST)
-// "ts": "2024-01-23T05:07:55.905Z",       "Z"          represent Greenwich Mean Time (GMT)
-// "ts": "2024-01-23T12:07:55.905+07:00"   "+07:00"     represent Indochina Time (ICT)
-// some more...
+// getTimezoneKey extracts the timezone from the timestamp.
 func getTimezoneKey(timestamp string) (string, error) {
 	if len(timestamp) < 24 {
 		return "", errors.New("timestamp is too short")
 	}
-
 	key := timestamp[23:]
 	return key, nil
 }
 
-func (r *ResultStats) sortTopURICall() {
+// SortTopURICall sorts the top URI calls.
+func (r *ResultStats) SortTopURICall() {
 	var hostSlice []Host
 	for host, count := range r.HostCnt {
 		hostSlice = append(hostSlice, Host{
@@ -195,11 +160,9 @@ func (r *ResultStats) sortTopURICall() {
 			Count: count,
 		})
 	}
-
 	sort.Slice(hostSlice, func(i, j int) bool {
 		return hostSlice[i].Count > hostSlice[j].Count
 	})
-
 	if len(hostSlice) > 5 {
 		r.SortedHostCnt = hostSlice[:5]
 	} else {
@@ -207,13 +170,12 @@ func (r *ResultStats) sortTopURICall() {
 	}
 }
 
-func (r *ResultStats) calcAvgRespTime() {
-	// var allRoutes
+// CalculateAvgRespTimeAndSlowRate calculates average response time.
+func (r *ResultStats) CalculateAvgRespTimeAndSlowRate() {
 	var allRoutesStackAvg float32
 	var routeCnt int
 	var AllRoutesMax int
 	var AllRoutesMin int
-
 	var allRoutesTotalReqCnt int
 	var allRoutesSlowReqCnt int
 

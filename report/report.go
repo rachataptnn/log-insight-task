@@ -7,4 +7,5 @@ import (
 
 func CreateReport(stat logAnalyzer.ResultStats) {
 	fmt.Println("stat is", stat)
+
 }
