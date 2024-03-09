@@ -16,11 +16,15 @@ func main() {
 	log.Println("Load config done")
 
 	var r logAnalyzer.ResultStats
-	stats, err := r.AnalyzeLog(cfg)
+	err = r.AnalyzeLog(cfg)
 	if err != nil {
 		panic(err)
 	}
-	log.Printf("Calc stats done <%+v>", stats)
+	log.Println("Calc stats done")
 
-	report.CreateReport(stats)
+	err = report.CreateReport(r)
+	if err != nil {
+		panic(err)
+	}
+	log.Println("write Log report done")
 }

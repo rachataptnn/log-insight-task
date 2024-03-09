@@ -30,32 +30,30 @@ type Host struct {
 
 type RespTimeStat struct {
 	AllRoutes AllRoutesRespTime
-	EachRoute EachRouteRespTime
+	EachRoute map[string]EachRouteRespTime
 }
 
 type AllRoutesRespTime struct {
-	Max      int
-	Min      int
-	Avg      float32
-	SlowRate float32
+	Min int
+	Avg float32
+	Max int
+
+	TotalReqCnt int
+
+	SlowReqCnt int
+	SlowRate   float32
 }
 
 type EachRouteRespTime struct {
-	EachRouteRespTimeSummary map[string]EachRouteRespTimeSummary
-	EachRouteRespTimeForCalc map[string]EachRouteRespTimeForCalcAvg
-}
+	Min int
+	Avg float32
+	Max int
 
-type EachRouteRespTimeSummary struct {
-	Max      int
-	Min      int
-	Avg      float32
-	SlowRate float32
-}
-
-type EachRouteRespTimeForCalcAvg struct {
 	TotalLatency int
 	TotalReqCnt  int
-	SlowReqCnt   int
+
+	SlowReqCnt int
+	SlowRate   float32
 }
 
 // InitMaps for avoid nil pointer errors.
@@ -64,17 +62,16 @@ func (r *ResultStats) InitMaps() {
 	r.CodeCnt = make(map[int]int)
 	r.HostCnt = make(map[string]int)
 	r.TimeZoneCnt = make(map[string]int)
-	r.RespTime.EachRoute.EachRouteRespTimeSummary = make(map[string]EachRouteRespTimeSummary)
-	r.RespTime.EachRoute.EachRouteRespTimeForCalc = make(map[string]EachRouteRespTimeForCalcAvg)
+	r.RespTime.EachRoute = make(map[string]EachRouteRespTime)
 }
 
 // Core function for log analysis.
-func (r *ResultStats) AnalyzeLog(cfg *config.Config) (ResultStats, error) {
+func (r *ResultStats) AnalyzeLog(cfg *config.Config) error {
 	r.InitMaps()
 
 	file, err := os.Open(cfg.LogFilePath)
 	if err != nil {
-		return ResultStats{}, err
+		return err
 	}
 	defer file.Close()
 
@@ -90,13 +87,13 @@ func (r *ResultStats) AnalyzeLog(cfg *config.Config) (ResultStats, error) {
 		r.CalculateLineStat(logDetail)
 	}
 	if err := scanner.Err(); err != nil {
-		return ResultStats{}, err
+		return err
 	}
 
 	r.CalculateAvgRespTimeAndSlowRate()
 	r.SortTopURICall()
 
-	return *r, nil
+	return nil
 }
 
 // Calculates statistics for each log line.
@@ -114,22 +111,22 @@ func (r *ResultStats) CalculateLineStat(logDetail model.LogDetail) error {
 		return err
 	}
 
-	calc := r.RespTime.EachRoute.EachRouteRespTimeForCalc[route]
+	calc := r.RespTime.EachRoute[route]
 	calc.TotalReqCnt++
 	calc.TotalLatency += latency
 	if latency > 500 {
 		calc.SlowReqCnt++
 	}
-	r.RespTime.EachRoute.EachRouteRespTimeForCalc[route] = calc
+	r.RespTime.EachRoute[route] = calc
 
-	summary := r.RespTime.EachRoute.EachRouteRespTimeSummary[route]
+	summary := r.RespTime.EachRoute[route]
 	if latency < summary.Min || summary.Min == 0 {
 		summary.Min = latency
 	}
 	if latency > summary.Max {
 		summary.Max = latency
 	}
-	r.RespTime.EachRoute.EachRouteRespTimeSummary[route] = summary
+	r.RespTime.EachRoute[route] = summary
 
 	r.HostCnt[logDetail.Host]++
 
@@ -179,17 +176,17 @@ func (r *ResultStats) CalculateAvgRespTimeAndSlowRate() {
 	var allRoutesTotalReqCnt int
 	var allRoutesSlowReqCnt int
 
-	eachRouteMap := r.RespTime.EachRoute.EachRouteRespTimeForCalc
+	eachRouteMap := r.RespTime.EachRoute
 	for routeName, routeStat := range eachRouteMap {
 		avgRespTime := float32(routeStat.TotalLatency) / float32(routeStat.TotalReqCnt)
 		fmt.Printf("\nroute name: %v\navg resp time: %v ms\n", routeName, avgRespTime)
 
-		eachRouteSummary := r.RespTime.EachRoute.EachRouteRespTimeSummary[routeName]
+		eachRouteSummary := r.RespTime.EachRoute[routeName]
 		avg := float32(routeStat.TotalLatency) / float32(routeStat.TotalReqCnt)
 		slowRate := float32(routeStat.SlowReqCnt) / float32(routeStat.TotalReqCnt) * 100
 		eachRouteSummary.SlowRate = slowRate
 		eachRouteSummary.Avg = avg
-		r.RespTime.EachRoute.EachRouteRespTimeSummary[routeName] = eachRouteSummary
+		r.RespTime.EachRoute[routeName] = eachRouteSummary
 
 		allRoutesStackAvg += avg
 		routeCnt++
@@ -198,7 +195,7 @@ func (r *ResultStats) CalculateAvgRespTimeAndSlowRate() {
 	}
 	r.RespTime.AllRoutes.Avg = allRoutesStackAvg / float32(routeCnt)
 
-	for _, v := range r.RespTime.EachRoute.EachRouteRespTimeSummary {
+	for _, v := range r.RespTime.EachRoute {
 		if v.Max > AllRoutesMax {
 			AllRoutesMax = v.Max
 		}
@@ -209,5 +206,7 @@ func (r *ResultStats) CalculateAvgRespTimeAndSlowRate() {
 	r.RespTime.AllRoutes.Max = AllRoutesMax
 	r.RespTime.AllRoutes.Min = AllRoutesMin
 
+	r.RespTime.AllRoutes.TotalReqCnt = allRoutesTotalReqCnt
+	r.RespTime.AllRoutes.SlowReqCnt = allRoutesSlowReqCnt
 	r.RespTime.AllRoutes.SlowRate = float32(allRoutesSlowReqCnt) / float32(allRoutesTotalReqCnt) * 100
 }
